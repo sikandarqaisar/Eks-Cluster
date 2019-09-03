@@ -1,0 +1,152 @@
+# @read https://eksworkshop.com/scaling/deploy_hpa/
+---
+# ------------------- Metrics-Server ServiceAccount ------------------- #
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: metrics-metrics-server
+  namespace: kube-system
+  labels:
+    app: metrics-server
+
+---
+# ------------------- Metrics-Server ClusterRole ------------------- #
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: system:metrics-metrics-server
+  namespace: kube-system
+  labels:
+    app: metrics-server
+rules:
+  - apiGroups:
+    - ""
+    resources:
+      - pods
+      - nodes
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+    - ""
+    resources:
+    - nodes/stats
+    verbs:
+    - get
+    - create
+---
+# ------------------- Metrics-Server ClusterRoleBinding ------------------- #
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: system:metrics-metrics-server
+  namespace: kube-system
+  labels:
+    app: metrics-server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:metrics-metrics-server
+subjects:
+  - kind: ServiceAccount
+    name: metrics-metrics-server
+    namespace: kube-system
+---
+# ------------------- Auth-Delegator ClusterRoleBinding ------------------- #
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: metrics-metrics-server:system:auth-delegator
+  namespace: kube-system
+  labels:
+    app: metrics-server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: metrics-metrics-server
+    namespace: kube-system
+---
+# ------------------- Metrics-Server RoleBinding ------------------- #
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: metrics-metrics-server-auth-reader
+  namespace: kube-system
+  labels:
+    app: metrics-server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - kind: ServiceAccount
+    name: metrics-metrics-server
+    namespace: kube-system
+---
+# ------------------- Metrics-Server Service ------------------- #
+apiVersion: v1
+kind: Service
+metadata:
+  name: metrics-metrics-server
+  namespace: kube-system
+  labels:
+    app: metrics-server
+spec:
+  ports:
+    - port: 443
+      protocol: TCP
+      targetPort: 443
+  selector:
+    app: metrics-server
+
+---
+# ------------------- Metrics-Server APIService ------------------- #
+apiVersion: apiregistration.k8s.io/v1beta1
+kind: APIService
+metadata:
+  name: v1beta1.metrics.k8s.io
+  namespace: kube-system
+  labels:
+    app: metrics-server
+spec:
+  service:
+    name: metrics-metrics-server
+    namespace: kube-system
+  group: metrics.k8s.io
+  version: v1beta1
+  insecureSkipTLSVerify: true
+  groupPriorityMinimum: 100
+  versionPriority: 100
+---
+# ------------------- Metrics-Server Deployment ------------------- #
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  name: metrics-metrics-server
+  namespace: kube-system
+  labels:
+    app: metrics-server
+spec:
+  selector:
+    matchLabels:
+      app: metrics-server
+      release: metrics
+  template:
+    metadata:
+      labels:
+        app: metrics-server
+        release: metrics
+    spec:
+      serviceAccountName: metrics-metrics-server
+      containers:
+        - name: metrics-server
+          image: "gcr.io/google_containers/metrics-server-amd64:${metrics_server_version}"
+          imagePullPolicy: IfNotPresent
+          command:
+            - /metrics-server
+            - "--logtostderr"
